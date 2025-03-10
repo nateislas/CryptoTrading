@@ -1,0 +1,7 @@
+cryptography
+ed25519
+aiohttp
+pandas
+nest_asyncio
+dash
+dash-bootstrap-components
