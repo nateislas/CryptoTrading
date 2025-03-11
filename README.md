@@ -1,198 +1,125 @@
-# Crypto Trading Pipeline: Building Algorithmic Strategies on Robinhood
+# Crypto Trading Pipeline: Algorithmic Trading on Robinhood
 
 ## Overview
+This project is a full end-to-end system for algorithmic trading using the official [Robinhood Crypto Trading API](https://newsroom.aboutrobinhood.com/robinhood-crypto-trading-api/). It enables users to retrieve real-time and historical market data, execute trades, and develop automated trading strategies. 
 
-This project, **Crypto Trading Pipeline**, is designed to provide a robust and user-friendly platform for developing and deploying algorithmic trading strategies on the Robinhood cryptocurrency API. It allows users to interact with their Robinhood accounts, retrieve real-time and historical market data, execute trades, and build automated trading algorithms.
+To ensure data efficiency and reliability, I have set up a small server using a single-board computer that continuously (24/7 at 1-second intervals) collects and saves cryptocurrency market data in an optimized manner. The plan is to accumulate multiple months of data and open-source the dataset.
 
-## Core Goals
+Additionally, I aim to build a platform that allows users to:
+- Develop and backtest trading strategies.
+- Automatically execute strategies.
+- Access a structured dataset for research.
 
-*   **Ease of Use:** Make it easy for users to develop and test algorithmic trading strategies.
-*   **Reliability:** Ensure the platform is stable, handles errors gracefully, and interacts with the Robinhood API correctly.
-*   **Flexibility:** Provide a flexible framework that allows users to create a wide variety of trading strategies.
-*   **Real-Time Capabilities:** Enable strategies to react to real-time market changes.
-*   **Security:** Create a system that ensures the user data is safe.
+## Current Features
 
-## Current State
+### Data Collection Pipeline
+- **Real-time data collection** at 1-second intervals.
+- **Optimized data storage** using Parquet format for efficiency.
+- **Multi-currency support** for tracking different crypto assets.
+- **Automated processing** to run continuously without intervention.
 
-The project currently includes:
+### Robinhood API Integration
+- **Account Management:** Retrieve balance, buying power, and holdings.
+- **Market Data Retrieval:** Fetch best bid/ask prices and historical data.
+- **Order Execution:** Place, cancel, and track trades (market, limit, stop-loss).
 
-*   **`api_access.py`:** A class (`CryptoAPITrading`) to interact with the Robinhood API. It now uses the following new files:
-    *   **`api_client.py`**: Handles the low-level API requests.
-    *   **`orders.py`**: Handles all the order related functions.
-    * **`market_data.py`**: Handles all the market data functions.
-    * **`account.py`**: Handles all the user account functions.
-    * It allows to:
-        *   Retrieve account information (account number, buying power).
-        *   Retrieve holdings.
-        *   Get real-time best bid/ask and estimated prices.
-        *   Place orders (market, limit, and stop loss).
-        *   Cancel orders.
-        *   Get an order.
-        *   Get all orders.
-*   **`app.py`:** A Dash application that displays basic account information and holdings. It now has:
-    * Error handling.
-    * It handles the minimum quantity requirement for certain assets.
-    * It is much more robust.
-*   **`test.py.ipynb`:** A Jupyter notebook with comprehensive testing of API functions. It now has:
-    *   Tests for account functions.
-    *   Tests for market data functions.
-    *   Tests for orders functions.
-    * Input validation tests.
-    * Type error tests.
-    * Error tests.
-*   **`test_dashboard.ipynb`:** A Jupyter notebook that is not being used.
+### Web Dashboard (Dash-based UI)
+- View account information and holdings.
+- Track real-time market prices.
+- Error handling and robustness improvements.
 
-## Development Roadmap
+### Testing & Validation
+- **Comprehensive testing suite** (`test.py.ipynb`) covering:
+  - API authentication
+  - Market data retrieval
+  - Order execution and tracking
+  - Error handling and input validation
 
-This roadmap outlines the key steps needed to transform this project into a powerful algorithmic trading platform. The tasks are broken down into priority order.
+## Roadmap
+### **Phase 1: Core Enhancements** *(Current Focus)*
+- **Improve Order Management:**
+  - Robust tracking of order status (pending, filled, canceled, etc.).
+  - Enhanced error handling for API failures and invalid parameters.
+  - Implement order modifications.
+- **Expand Data Retrieval:**
+  - Support for historical OHLC (candlestick) and volume data.
+  - Data filtering by timeframes and symbols.
+- **Authentication & Security:**
+  - Secure user management system.
+  - Better handling of API credentials.
 
-### Priority 1: Core Functionality & Codebase Foundation (Essential)
+### **Phase 2: Real-Time Trading & Execution**
+- **Websockets for Real-Time Updates:**
+  - Investigate Robinhood WebSocket API (if available).
+  - Implement real-time data streaming.
+- **Strategy Execution Engine:**
+  - Develop a modular system for algorithmic strategies.
+  - Implement logging and monitoring for live trading.
 
-These are the *absolute must-haves* to make the project functional and reliable.
+### **Phase 3: Backtesting & Open-Source Dataset**
+- **Backtesting Framework:**
+  - Create a historical data replay system.
+  - Simulate order execution and performance metrics.
+- **Open-Source Crypto Dataset:**
+  - Publish cleaned historical crypto data for research and development.
+  - Allow users to contribute additional datasets.
 
-1.  **Robust Order Management (Testing & Error Handling)**
-    *   **Goal:** Ensure all order-related functions are thoroughly tested and handle errors correctly.
-    *   **Tasks:**
-        *   [x] **Thorough Testing (`test.py.ipynb`):**
-            *   [x] Test `place_order` with different order types (market, limit, stop-loss, stop-limit).
-            *   [x] Test `cancel_order` with orders in various states.
-            *   [x] Test `get_order` (by order ID).
-            *   [x] Test `get_orders` (retrieving all orders).
-        *   [ ] **Order Status Tracking (`api_access.py`, `orders.py`):**
-            *   Add logic to track order status (pending, filled, partially filled, canceled, rejected).
-        *   [x] **Order Error Handling (`api_access.py`, `orders.py`):**
-            *   [x] Handle API request errors.
-            *   [x] Handle order rejection errors.
-            *   [x] Handle invalid order parameters.
-            *   [ ] Add a function to modify orders.
-            * [x] Validate all inputs.
-            * [x] Add comments to better explain the code.
-    *   **Files:** `robinhood_api/api_access.py`, `robinhood_api/orders.py`, `test.py.ipynb`
-2.  **Enhance Error Handling (API Requests & Inputs)**
-    *   **Goal:** Make the system stable and predictable by handling errors gracefully.
-    *   **Tasks:**
-        *   [x] **API Request Errors (`api_access.py`, `api_client.py`):**
-            *   [x] Handle network errors (`requests.exceptions.ConnectionError`).
-            *   [x] Handle rate limiting errors (status code 429).
-            *   [x] Handle authentication failures (status code 401).
-            *   [x] Handle server errors (status code 500).
-            *   [x] Log errors to a file or the console.
-        *   [x] **Input Validation (`api_access.py`, `orders.py`, `market_data.py`):**
-            *   [x] Check if symbols are valid.
-            *   [x] Check if quantities are positive.
-            *   [x] Check if order types are valid.
-        *   [x] **Catch Exceptions:** Use `try-except` blocks throughout the codebase.
-    *   **Files:** `robinhood_api/api_access.py`, `robinhood_api/api_client.py`, `robinhood_api/orders.py`, `robinhood_api/market_data.py`, `test.py.ipynb`, `app.py`
-3.  **Authentication**
-    *   **Goal:** Allow users to use the app in a secure way.
-    *   **Tasks:**
-        *   [ ] **Create a user management system:** Create a way for new users to create an account.
-        *   [ ] **Better key management:** Don't store the user keys in plain text.
-    *   **Files:** All files are going to need to be changed.
-4.  **Refactor `api_access.py` (Code Organization)**
-    *   **Goal:** Improve code organization by splitting `api_access.py` into multiple files.
-    *   **Tasks:**
-        *   [x] **`api_client.py`:** Create this new file. Move the core API request logic (`make_api_request`, `get_authorization_header`) here.
-        *   [x] **`orders.py`:** Create this new file. Move order-related functions (`place_order`, `cancel_order`, `get_order`, `get_orders`) here.
-        *   [x] **`market_data.py`:** Create this new file. Move market data functions (`get_best_bid_ask`, `get_estimated_price`, etc.) here.
-        *   [x] **`account.py`:** Create this new file to house the account information functions.
-        *   [x] **Update Imports:** Update all files to import from the new locations.
-    *   **Files:** `robinhood_api/api_access.py`, `robinhood_api/api_client.py`, `robinhood_api/orders.py`, `robinhood_api/market_data.py`, `robinhood_api/account.py`, `test.py.ipynb`, `app.py`
+### **Phase 4: Advanced Features** *(Future Work)*
+- **Paper Trading Mode**: Test strategies without real capital.
+- **Technical Indicators**: Integrate common TA indicators.
+- **Machine Learning & AI**: Allow integration of ML-based trading models.
+- **Cloud Deployment**: Enable users to deploy strategies on the cloud.
 
-### Priority 2: Data Retrieval & Real-Time Updates (Next Steps)
-
-These are essential for building actual trading algorithms.
-
-1.  **Advanced Data Retrieval (Historical & Granular)**
-    *   **Goal:** Provide access to rich historical and granular market data.
-    *   **Tasks:**
-        *   [ ] **Historical Price Data (`market_data.py`):**
-            *   Create a new function to get historical price data.
-            *   Accept a symbol, timeframe (e.g., '1d', '1h', '5m'), and date range.
-            *   Return data in a clear format (e.g., Pandas DataFrame with timestamps, OHLC data, volume).
-        *   [ ] **Candlestick Data:** Ensure historical data function includes OHLC data.
-        *   [ ] **Volume Data:** Make sure historical data includes volume.
-        *   [ ] **Data Filtering:** Allow users to specify date ranges, symbols, etc.
-        *   [ ] **`data_provider.py`:** Create this new file to house data manipulation code.
-    *   **Files:** `robinhood_api/market_data.py`, `data_provider.py`, `test.py.ipynb`
-2.  **Start Real-Time Data Exploration (Websockets)**
-    *   **Goal:** Move beyond polling and use real-time data feeds.
-    *   **Tasks:**
-        *   [ ] **Research:** Investigate if Robinhood offers a websocket API.
-        *   [ ] **Experiment:** Try to connect to the websocket and print data.
-        *   [ ] **Implement:** If you can get a connection with the websocket, implement the connection.
-    *   **Files:** `robinhood_api/market_data.py`, `test.py.ipynb`
-
-### Priority 3: `app.py` Enhancements (Dashboard)
-
-1.  **Improve Dashboard Data**
-    *   **Goal:** Display more data and add charts.
-    *   **Tasks:**
-        *   [ ] **More data:** Display more data, such as best bid and ask.
-        *   [ ] **Charts:** Add the ability to add charts to the dashboard.
-        * [ ] **Error message:** Display an error message when something goes wrong.
-    *   **Files:** `app.py`
-
-### Priority 4: Code Cleanup & Structure (Ongoing)
-
-These should be done as you go along, not as separate steps.
-
-1.  **Remove Redundant Code**
-    *   **Tasks:**
-        *   [x] Remove unused imports.
-        *   [x] Remove commented-out code.
-    *   **Files:** All files
-2.  **Jupyter Notebooks**
-    *   **Tasks:**
-        *   [ ] Move code from notebooks into `.py` files.
-        *   [x] Use notebooks for testing and experimentation only.
-    *   **Files:** `test.py.ipynb`, `test_dashboard.ipynb`
-3.  **Documentation**
-    *   **Tasks:**
-        *   [ ] Add docstrings to all functions.
-        *   [x] Add comments to complex code.
-        *   [x] Update `README.md`.
-    *   **Files:** All files
-4.  **Testing:**
-    *   **Tasks:**
-        *   [ ] **Create a `test` folder:** Move the `test.py.ipynb` file to a folder called `test`.
-        *   [ ] **Create more tests:** Create more testing files.
-    *   **Files:** `test` folder.
-
-### Future Enhancements
-
-These are advanced features that can be considered after the core functionality is stable:
-
-*   **Strategy Development Tools:**
-    *   Strategy base class.
-    *   Backtesting engine.
-    *   Paper trading.
-    *   Examples.
-*   **Deployment Capabilities:**
-    *   Live trading.
-    *   Deployment options (local, cloud).
-    *   Scheduling.
-*   **Technical Indicators:**
-    *   Integrate common technical indicators.
-*   **Machine Learning Integration:**
-    *   Allow users to integrate their own ML models.
-    *   Create examples that use ML.
-*   **Community:**
-    *   Create a good documentation.
-    *   Create tutorials.
-*   **Security:**
-    *   Better user and key management.
+## Project Structure
+```
+CryptoTrading/
+│── data/                     # Collected crypto market data
+│── src/
+│   ├── robinhood_api/
+│   │   ├── api_access.py      # High-level API interactions
+│   │   ├── api_client.py      # Low-level API requests
+│   │   ├── orders.py          # Order execution functions
+│   │   ├── market_data.py     # Market data retrieval functions
+│   │   ├── account.py         # Account management functions
+│   ├── data_processing/
+│   │   ├── collect_ticker_data.py  # Real-time data collection script
+│── app.py                     # Web dashboard for trading
+│── README.md                  # Project documentation
+```
 
 ## Getting Started
+### Prerequisites
+- Python 3.9+
+- Pip and virtualenv
+- Robinhood API credentials
 
-1.  Clone the repository.
-2.  Set up your Robinhood API credentials.
-3.  Follow the development roadmap above.
+### Installation
+```bash
+# Clone the repository
+git clone https://github.com/your-repo/CryptoTrading.git
+cd CryptoTrading
+
+# Create and activate a virtual environment
+python3.9 -m venv .venv
+source .venv/bin/activate  # On Mac/Linux
+.venv\Scripts\activate    # On Windows
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Running the Data Collector
+```bash
+python src/data_processing/collect_ticker_data.py --ticker BTC-USD --interval 1s --batch_size 250
+```
+
+### Running the Web Dashboard
+```bash
+python app.py
+```
 
 ## Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request.
+Contributions are welcome! If you have ideas or improvements, feel free to open an issue or submit a pull request.
 
 ## License
-
-[Add your license here]
+[MIT License] – Feel free to use, modify, and distribute this project.

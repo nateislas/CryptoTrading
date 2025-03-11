@@ -117,6 +117,8 @@ venv.bak/
 # CSV files
 *.csv
 
+*.ipynb
+
 # Parquet files
 *.parquet
 
