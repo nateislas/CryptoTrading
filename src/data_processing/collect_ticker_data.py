@@ -23,17 +23,16 @@ Usage:
     python collect_ticker_data.py --ticker BTC-USD --interval 1m --batch_size 250
 """
 
+import nest_asyncio
 import asyncio
 import aiohttp
 import pandas as pd
 import logging
 import os
-import time
 from datetime import datetime
-from src.robinhood_api.api_access import CryptoAPITrading
-import nest_asyncio
-import glob
 import argparse
+from fastparquet import write
+from src.robinhood_api.api_access import CryptoAPITrading
 
 # Allow nested event loops (useful for Jupyter notebooks).
 nest_asyncio.apply()
@@ -45,7 +44,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 INTERVAL_SECONDS = {'1s': 1, '1m': 60, '5m': 300, '30m': 1800}
 
 # Number of data points to collect per batch before saving.
-BATCH_SIZE = 250  # Adjustable based on memory and performance needs.
+BATCH_SIZE = 10  # Adjustable based on memory and performance needs.
 
 async def get_price(session, client, ticker):
     """
@@ -96,6 +95,15 @@ async def collect_data_async(client, ticker, batch_size, interval='1s'):
             await asyncio.sleep(interval_seconds)  # Pause between API calls.
     return batch_results
 
+def append_to_parquet(file_path, df):
+    """Append data to a Parquet file efficiently using Fastparquet."""
+
+    if os.path.exists(file_path):
+        # If file exists, append to it
+        write(file_path, df, append=True, compression='SNAPPY', file_scheme="simple")
+    else:
+        # Otherwise, create a new file
+        write(file_path, df, compression='SNAPPY', file_scheme="simple")
 
 def save_to_parquet(results, ticker, interval, start_new_day):
     """
@@ -143,7 +151,7 @@ def save_to_parquet(results, ticker, interval, start_new_day):
                 previous_day_df = pd.concat([existing_df, previous_day_df]).drop_duplicates().reset_index(drop=True)
 
             # Save to Parquet with Snappy compression.
-            previous_day_df.to_parquet(previous_file_path, index=False, compression='snappy')
+            append_to_parquet(previous_file_path, previous_day_df)
             logging.info(f"Data saved for {ticker} on {date}: {previous_file_path}")
 
         # Keep only the current day's data.
@@ -159,7 +167,7 @@ def save_to_parquet(results, ticker, interval, start_new_day):
         df = pd.concat([existing_df, df]).drop_duplicates().reset_index(drop=True)
 
     # Save current day's data to Parquet with Snappy compression.
-    df.to_parquet(file_path, index=False, compression='snappy')
+    append_to_parquet(file_path, df)
 
     logging.info(f"Data saved successfully for {ticker} on {current_date_str}: {file_path}")
 
