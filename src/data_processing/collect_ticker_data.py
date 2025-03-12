@@ -32,6 +32,7 @@ import os
 from datetime import datetime
 import argparse
 from fastparquet import write
+import gc
 from src.robinhood_api.api_access import CryptoAPITrading
 
 # Allow nested event loops (useful for Jupyter notebooks).
@@ -89,9 +90,8 @@ async def collect_data_async(client, ticker, batch_size, interval='1s'):
     batch_results = []
     async with aiohttp.ClientSession() as session:
         for _ in range(batch_size):
-            task = asyncio.create_task(get_price(session, client, ticker))
-            result = await task
-            batch_results.append(result)
+            tasks = [get_price(session, client, ticker) for _ in range(batch_size)]
+            batch_results = await asyncio.gather(*tasks)
             await asyncio.sleep(interval_seconds)  # Pause between API calls.
     return batch_results
 
@@ -161,11 +161,6 @@ def save_to_parquet(results, ticker, interval, start_new_day):
     current_date_str = unique_dates[-1]
     file_path = os.path.join(folder, f"{current_date_str}.parquet")
 
-    # Append data if file exists; otherwise, create a new file.
-    if os.path.exists(file_path):
-        existing_df = pd.read_parquet(file_path)
-        df = pd.concat([existing_df, df]).drop_duplicates().reset_index(drop=True)
-
     # Save current day's data to Parquet with Snappy compression.
     append_to_parquet(file_path, df)
 
@@ -198,7 +193,8 @@ async def collect_data_continuous(client, ticker, interval='1s', batch_size=BATC
         start_new_day = (new_day != current_day)
         if start_new_day or len(all_results) >= batch_size:
             save_to_parquet(all_results, ticker, interval, start_new_day)
-            all_results = []  # Clear batch after saving.
+            del all_results[:]  # Explicitly delete elements in place.
+            gc.collect()  # Force garbage collection to free memory.
             current_day = new_day
 
         await asyncio.sleep(0.1)  # Yield control briefly.
