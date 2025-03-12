@@ -90,9 +90,10 @@ async def collect_data_async(client, ticker, batch_size, interval='1s'):
     batch_results = []
     async with aiohttp.ClientSession() as session:
         for _ in range(batch_size):
-            tasks = [get_price(session, client, ticker) for _ in range(batch_size)]
-            batch_results = await asyncio.gather(*tasks)
-            await asyncio.sleep(interval_seconds)  # Pause between API calls.
+            response = await get_price(session, client, ticker)
+            if response:
+                batch_results.append(response)
+            await asyncio.sleep(interval_seconds)  # Spread out requests
     return batch_results
 
 def append_to_parquet(file_path, df):
