@@ -12,12 +12,11 @@ Dependencies:
 - os: For file and directory management.
 - time: For time-related functions.
 - datetime: For handling timestamps.
-- nest_asyncio: To allow nested event loops (needed for Jupyter notebooks).
-- glob: For handling file patterns.
 - argparse: For command-line argument parsing.
+- fastparquet: For writing Parquet files with SNAPPY compression.
 
 Modules:
-- CryptoAPITrading: A custom API access module for Robinhood Crypto API.
+- src.robinhood_api.api_access: Contains the CryptoAPITrading class to access Robinhood Crypto API.
 
 Usage:
     python collect_ticker_data.py --ticker BTC-USD --interval 1m --batch_size 250
@@ -31,21 +30,20 @@ import logging
 import os
 from datetime import datetime
 import argparse
-from fastparquet import write
 import gc
+from fastparquet import write
+
 from src.robinhood_api.api_access import CryptoAPITrading
 
 # Allow nested event loops (useful for Jupyter notebooks).
 nest_asyncio.apply()
 
-# Configure logging for the script.
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
 # Interval options for API calls (in seconds).
 INTERVAL_SECONDS = {'1s': 1, '1m': 60, '5m': 300, '30m': 1800}
 
-# Number of data points to collect per batch before saving.
-BATCH_SIZE = 10  # Adjustable based on memory and performance needs.
+# Default number of data points to collect per batch.
+BATCH_SIZE = 185
+
 
 async def get_price(session, client, ticker):
     """
@@ -73,6 +71,7 @@ async def get_price(session, client, ticker):
         logging.error(f"Exception for {ticker}: {e}")
         return None
 
+
 async def collect_data_async(client, ticker, batch_size, interval='1s'):
     """
     Asynchronously collects a batch of price data for a given ticker.
@@ -86,7 +85,7 @@ async def collect_data_async(client, ticker, batch_size, interval='1s'):
     Returns:
         list: A list of dictionaries containing the collected price data.
     """
-    interval_seconds = INTERVAL_SECONDS[interval]
+    interval_seconds = INTERVAL_SECONDS.get(interval, 1)
     batch_results = []
     async with aiohttp.ClientSession() as session:
         for _ in range(batch_size):
@@ -96,9 +95,15 @@ async def collect_data_async(client, ticker, batch_size, interval='1s'):
             await asyncio.sleep(interval_seconds)  # Spread out requests
     return batch_results
 
-def append_to_parquet(file_path, df):
-    """Append data to a Parquet file efficiently using Fastparquet."""
 
+def append_to_parquet(file_path, df):
+    """
+    Append data to a Parquet file efficiently using Fastparquet.
+
+    Args:
+        file_path (str): Full path to the Parquet file.
+        df (pandas.DataFrame): DataFrame to append.
+    """
     if os.path.exists(file_path):
         # If file exists, append to it
         write(file_path, df, append=True, compression='SNAPPY', file_scheme="simple")
@@ -106,10 +111,13 @@ def append_to_parquet(file_path, df):
         # Otherwise, create a new file
         write(file_path, df, compression='SNAPPY', file_scheme="simple")
 
+
 def save_to_parquet(results, ticker, interval, start_new_day):
     """
     Saves the collected data to Parquet files with efficient compression.
-    If start_new_day is True, splits the data to save the previous day to a separate file.
+    If start_new_day is True (meaning we've detected a day rollover),
+    this function saves all prior day data separately and keeps only
+    the new day's data for the final write.
 
     Args:
         results (list): List of dictionaries containing price data.
@@ -120,56 +128,105 @@ def save_to_parquet(results, ticker, interval, start_new_day):
     Returns:
         None
     """
-    # Extract bid and ask data into separate DataFrames.
-    bid_data = pd.DataFrame([res['results'][0] for res in results if res is not None])
-    ask_data = pd.DataFrame([res['results'][1] for res in results if res is not None])
+    if not results:
+        return
 
-    # Merge bid and ask data on common columns.
-    df = pd.merge(bid_data, ask_data, on=['timestamp', 'symbol', 'quantity'], suffixes=('_bid', '_ask'))
+    # Build bid/ask DataFrames -- *only* the columns you need
+    bid_data = pd.DataFrame([r['results'][0] for r in results if r is not None])
+    ask_data = pd.DataFrame([r['results'][1] for r in results if r is not None])
 
-    # Ensure timestamp is in datetime format with UTC timezone.
+    # Merge on common columns
+    df = pd.merge(bid_data, ask_data,
+                  on=['timestamp', 'symbol', 'quantity'],
+                  suffixes=('_bid', '_ask'))
+
+    # Ensure timestamp is in datetime format with UTC timezone
     df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
 
-    # Define data directory and create if it doesn't exist.
+    # Create a 'date' column to split data by day
+    df['date'] = df['timestamp'].dt.strftime('%Y-%m-%d')
+    unique_dates = df['date'].unique()
+
+    # Define data directory and create it if it doesn't exist
     project_root = os.path.abspath(os.path.join(os.getcwd()))
     folder = os.path.join(project_root, 'data', ticker, interval)
     os.makedirs(folder, exist_ok=True)
 
-    # Extract unique dates from the timestamp column.
-    df['date'] = df['timestamp'].dt.strftime('%Y-%m-%d')
-    unique_dates = df['date'].unique()
+    # ----------------------------------------------------
+    # NEW LOGIC:
+    # Always handle all days except the last (if multiple),
+    # so previous days get correctly written to their files.
+    # ----------------------------------------------------
 
-    # Handle the case where a new day has started.
-    if start_new_day and len(unique_dates) > 1:
-        # Save previous day's data to a separate file.
+    # If we either detect a new day or have multiple dates,
+    # handle all old dates first (unique_dates[:-1])
+    # Then we'll handle the final (current) date last.
+    if start_new_day or len(unique_dates) > 1:
+        # Save each date except the last one
         for date in unique_dates[:-1]:
-            previous_day_df = df[df['date'] == date]
-            previous_file_path = os.path.join(folder, f"{date}.parquet")
+            prev_day_df = df[df['date'] == date]
+            prev_file_path = os.path.join(folder, f"{date}.parquet")
 
-            # Append if file exists, otherwise create new.
-            if os.path.exists(previous_file_path):
-                existing_df = pd.read_parquet(previous_file_path)
-                previous_day_df = pd.concat([existing_df, previous_day_df]).drop_duplicates().reset_index(drop=True)
+            # If file exists, merge it to avoid duplicates
+            if os.path.exists(prev_file_path):
+                existing_df = pd.read_parquet(prev_file_path)
+                prev_day_df = pd.concat([existing_df, prev_day_df]).drop_duplicates().reset_index(drop=True)
 
-            # Save to Parquet with Snappy compression.
-            append_to_parquet(previous_file_path, previous_day_df)
-            logging.info(f"Data saved for {ticker} on {date}: {previous_file_path}")
+            # Append (or create) to parquet
+            append_to_parquet(prev_file_path, prev_day_df)
+            logging.info(f"Data saved for {ticker} on {date}: {prev_file_path}")
 
-        # Keep only the current day's data.
+        # Keep only the last date in df for final save
         df = df[df['date'] == unique_dates[-1]]
 
-    # Define file path based on current date.
-    current_date_str = unique_dates[-1]
+    # ----------------------------------------------------
+    # Final step: write remaining (last date) data
+    # ----------------------------------------------------
+    current_date_str = df['date'].iloc[-1]  # the final date in the batch
     file_path = os.path.join(folder, f"{current_date_str}.parquet")
 
-    # Save current day's data to Parquet with Snappy compression.
-    append_to_parquet(file_path, df)
+    # Merge with existing file to avoid duplicates
+    if os.path.exists(file_path):
+        existing_df = pd.read_parquet(file_path)
+        df = pd.concat([existing_df, df]).drop_duplicates().reset_index(drop=True)
 
+    append_to_parquet(file_path, df)
     logging.info(f"Data saved successfully for {ticker} on {current_date_str}: {file_path}")
+
+async def writer(queue, ticker, interval):
+    """
+    Asynchronous writer that consumes batches from the queue
+    and writes them to disk, handling day boundaries.
+    """
+    current_day = datetime.utcnow().strftime("%Y-%m-%d")
+
+    while True:
+        item = await queue.get()
+        if item is None:
+            # "Poison pill" to signal shutdown
+            queue.task_done()
+            break
+
+        batch_results, batch_day = item
+        # Check if we've rolled over to a new day
+        start_new_day = (batch_day != current_day)
+
+        # Write batch to disk
+        save_to_parquet(batch_results, ticker, interval, start_new_day)
+
+        # If a new day has started, update current_day
+        if start_new_day:
+            current_day = batch_day
+
+        queue.task_done()
+        # Force garbage collection after writing
+        gc.collect()
+
 
 async def collect_data_continuous(client, ticker, interval='1s', batch_size=BATCH_SIZE):
     """
-    Continuously collects data and saves it to disk periodically.
+    Continuously collects data in batches and places them on an async queue
+    so that the writer can consume them without using excess memory.
 
     Args:
         client (CryptoAPITrading): API client for data retrieval.
@@ -180,29 +237,37 @@ async def collect_data_continuous(client, ticker, interval='1s', batch_size=BATC
     Returns:
         None
     """
-    current_day = datetime.utcnow().strftime("%Y-%m-%d")
-    all_results = []
+    # Create a limited-size queue to avoid large in-memory buildup
+    queue = asyncio.Queue(maxsize=5)
 
-    while True:
-        # Collect a batch of data.
-        batch_results = await collect_data_async(client, ticker, batch_size, interval)
-        all_results.extend(batch_results)
-        logging.info(f"Collected batch of {len(batch_results)} data points for {ticker}.")
+    # Create the writer task which will continuously consume from queue
+    writer_task = asyncio.create_task(writer(queue, ticker, interval))
 
-        # Save data if the day changes or if batch size is large.
-        new_day = datetime.utcnow().strftime("%Y-%m-%d")
-        start_new_day = (new_day != current_day)
-        if start_new_day or len(all_results) >= batch_size:
-            save_to_parquet(all_results, ticker, interval, start_new_day)
-            del all_results[:]  # Explicitly delete elements in place.
-            gc.collect()  # Force garbage collection to free memory.
-            current_day = new_day
+    try:
+        while True:
+            # Collect a batch of data
+            batch_results = await collect_data_async(client, ticker, batch_size, interval)
+            logging.info(f"Collected a batch of {len(batch_results)} data points for {ticker}.")
 
-        await asyncio.sleep(0.1)  # Yield control briefly.
+            # Determine the day associated with this batch
+            batch_day = datetime.utcnow().strftime("%Y-%m-%d")
+
+            # Offload the batch to the writer
+            await queue.put((batch_results, batch_day))
+
+            # Brief sleep to yield control
+            await asyncio.sleep(0.1)
+    finally:
+        # Put a "poison pill" to signal the writer to exit
+        await queue.put(None)
+        # Wait for the writer to finish
+        await writer_task
+
 
 def start_collection(client, ticker, interval='1s', batch_size=BATCH_SIZE):
     """
-    Entry point for data collection.
+    Entry point for data collection. Schedules the continuous collector
+    using asyncio.run().
 
     Args:
         client (CryptoAPITrading): API client instance.
@@ -213,17 +278,40 @@ def start_collection(client, ticker, interval='1s', batch_size=BATCH_SIZE):
     Returns:
         None
     """
+    # Set up the log filename
+    log_filename = f"{ticker}_{interval}.log"
+    log_path = os.path.join(os.getcwd(), "logs")  # Ensure logs are stored in a dedicated folder
+    os.makedirs(log_path, exist_ok=True)  # Create logs folder if it doesn't exist
+    log_file = os.path.join(log_path, log_filename)
+
+    # Configure logging to file + console
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.FileHandler(log_file, mode='a'),  # Append mode to continue logging
+            logging.StreamHandler()  # Still log to console
+        ]
+    )
+
+    logging.info(f"Starting data collection for {ticker} with interval {interval} and batch size {batch_size}")
+
     asyncio.run(collect_data_continuous(client, ticker, interval, batch_size))
 
+
 if __name__ == '__main__':
+
     # Command-line interface for specifying ticker, interval, and batch size.
     parser = argparse.ArgumentParser(description='Collect ticker data continuously.')
-    parser.add_argument('--ticker', type=str, required=True, help='The ticker symbol to collect data for (e.g., BTC-USD).')
-    parser.add_argument('--interval', type=str, default='1s', help='The interval for data collection (e.g., 1s, 1m).')
-    parser.add_argument('--batch_size', type=int, default=BATCH_SIZE, help='Batch size for data collection.')
+    parser.add_argument('--ticker', type=str, required=True,
+                        help='The ticker symbol to collect data for (e.g., BTC-USD).')
+    parser.add_argument('--interval', type=str, default='1s',
+                        help='The interval for data collection (e.g., 1s, 1m).')
+    parser.add_argument('--batch_size', type=int, default=BATCH_SIZE,
+                        help='Batch size for data collection.')
 
     args = parser.parse_args()
 
-    # Initialize API client and start data collection.
+    # Initialize the API client and start data collection.
     client = CryptoAPITrading()
     start_collection(client, args.ticker, interval=args.interval, batch_size=args.batch_size)
