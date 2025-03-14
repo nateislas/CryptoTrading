@@ -44,7 +44,6 @@ INTERVAL_SECONDS = {'1s': 1, '1m': 60, '5m': 300, '30m': 1800}
 # Default number of data points to collect per batch.
 BATCH_SIZE = 185
 
-
 async def get_price(session, client, ticker):
     """
     Asynchronously fetches the latest bid and ask prices for a given ticker.

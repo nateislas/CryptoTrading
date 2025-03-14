@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 
 # Cryptos to track
-cryptos = ["BTC", "ETH", "SOL"]
+cryptos = ["BTC", "ETH"]
 
 # Add crypto cards to layout
 crypto_cards = dbc.Row([dbc.Col(components.generate_crypto_card(asset), width="auto") for asset in cryptos])

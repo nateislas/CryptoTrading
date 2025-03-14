@@ -2,7 +2,7 @@ from dash.dependencies import Input, Output, State
 from . import utils
 from . import components
 
-cryptos = ['BTC', 'ETH', 'SOL']
+cryptos = ['BTC', 'ETH']
 
 def register_callbacks(app):
     @app.callback(
