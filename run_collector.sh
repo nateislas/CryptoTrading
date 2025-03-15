@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Script: run_collector.sh
-# Description: Runs the collect_ticker_data.py script for multiple tickers simultaneously.
-# Usage: ./run_collector.sh --tickers BTC-USD ETH-USD SOL-USD --interval 1s --batch_size 185
+# Description: Runs collect_ticker_data.py with multiple tickers as a single process using asyncio.
+# Usage: ./run_collector.sh --tickers BTC-USD ETH-USD --interval 1s --batch_size 250
 
 # --- Configuration ---
 PROJECT_ROOT="/Users/nathanielislas/PycharmProjects/CryptoTrading"  # Replace with actual path
@@ -28,7 +28,7 @@ fi
 # --- Parse Arguments ---
 TICKERS=()
 INTERVAL="1s"  # Default interval
-BATCH_SIZE=120  # Default batch size
+BATCH_SIZE=250  # Default batch size
 
 # Process command-line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -46,19 +46,13 @@ if [ ${#TICKERS[@]} -eq 0 ]; then
     exit 1
 fi
 
-# --- Run the Script for Each Ticker ---
+# Convert ticker array to a comma-separated string
+TICKER_LIST=$(IFS=,; echo "${TICKERS[*]}")
+
+# --- Run the Python script with multiple tickers ---
 echo "Starting data collection for tickers: ${TICKERS[*]}"
+python3 -m src.data_processing.collect_ticker_data --tickers "$TICKER_LIST" --interval "$INTERVAL" --batch_size "$BATCH_SIZE"
 
-for TICKER in "${TICKERS[@]}"; do
-    echo "Launching collection for $TICKER with interval $INTERVAL and batch size $BATCH_SIZE"
-    python3 -m src.data_processing.collect_ticker_data --ticker "$TICKER" --interval "$INTERVAL" --batch_size "$BATCH_SIZE" &
-done
-
-# Wait for all background jobs to finish
-wait
-
-echo "All ticker collection processes have completed."
-
-# Deactivate the virtual environment (optional)
+# Deactivate the virtual environment
 echo "Deactivating virtual environment."
 deactivate
