@@ -6,13 +6,17 @@ from decimal import Decimal, getcontext
 # Set the precision you need
 getcontext().prec = 28
 
-def load_historical_data(ticker, data_interval, start_date=None, end_date=None, ohlc_interval=None):
+import os
+import glob
+import pandas as pd
+import numpy as np
+
+def load_historical_data(ticker, start_date=None, end_date=None, ohlc_interval=None):
     """
-    Loads cryptocurrency market data from Parquet files, optionally resamples to OHLC data.
+    Loads cryptocurrency market data from Parquet batch files stored by date folders.
 
     Args:
         ticker (str): The cryptocurrency ticker symbol (e.g., 'BTC-USD').
-        data_interval (str): The interval of the data files (e.g., '1s', '1min').
         start_date (str, optional): The start date for data retrieval (YYYY-MM-DD). Defaults to None.
         end_date (str, optional): The end date for data retrieval (YYYY-MM-DD). Defaults to None.
         ohlc_interval (str, optional): The interval for OHLC resampling (e.g., '1min', '5min'). If None, no resampling is performed. Defaults to None.
@@ -26,8 +30,6 @@ def load_historical_data(ticker, data_interval, start_date=None, end_date=None, 
     # Validate Inputs
     if not isinstance(ticker, str) or not ticker:
         raise ValueError("ticker must be a non-empty string.")
-    if not isinstance(data_interval, str) or not data_interval:
-        raise ValueError("data_interval must be a non-empty string.")
     if start_date is not None and not isinstance(start_date, str):
         raise ValueError("start_date must be a string or None.")
     if end_date is not None and not isinstance(end_date, str):
@@ -35,44 +37,48 @@ def load_historical_data(ticker, data_interval, start_date=None, end_date=None, 
     if ohlc_interval is not None and not isinstance(ohlc_interval, str):
         raise ValueError("ohlc_interval must be a string or None.")
 
-    # Define data path pattern
-    path_pattern = os.path.join(project_root, 'data', ticker, data_interval, '*.parquet')
-    files = glob.glob(path_pattern)
+    # Define data directory pattern
+    data_dir = os.path.join(project_root, 'data', ticker, '1s')
+    if not os.path.exists(data_dir):
+        print(f"No data directory found for {ticker} at interval {'1s'}.")
+        return pd.DataFrame()
+
+    # List all date-based folders
+    date_folders = sorted([folder for folder in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, folder))])
+
+    # Apply date filters if provided
+    if start_date:
+        date_folders = [folder for folder in date_folders if folder >= start_date]
+    if end_date:
+        date_folders = [folder for folder in date_folders if folder <= end_date]
 
     df_list = []
 
-    for file in files:
-        date = os.path.basename(file).split('.')[0]
+    # Iterate over date folders and load all batch files within each day
+    for date_folder in date_folders:
+        batch_files = glob.glob(os.path.join(data_dir, date_folder, "*.parquet"))
+        if not batch_files:
+            continue  # Skip folders with no files
 
-        # Load file if within date range or if no date range is specified
-        if (start_date is None or end_date is None) or (start_date <= date <= end_date):
-            df = pd.read_parquet(file)
-            df_list.append(df)
+        daily_df_list = [pd.read_parquet(batch) for batch in batch_files]
+        daily_df = pd.concat(daily_df_list, ignore_index=True)
+
+        df_list.append(daily_df)
 
     # Check if any data was loaded
     if not df_list:
         print(f"No data found for {ticker} in the specified date range.")
-        return pd.DataFrame()  # Return empty DataFrame if no data
+        return pd.DataFrame()
 
-    # Concatenate all dataframes
-    combined_df = pd.concat(df_list)
+    # Concatenate all daily dataframes
+    combined_df = pd.concat(df_list, ignore_index=True)
 
-    # Ensure all types are correct
+    # Ensure timestamps are correct
     combined_df['timestamp'] = pd.to_datetime(combined_df['timestamp'], utc=True)
-
-    #combined_df['price_bid'] = pd.to_numeric(combined_df['price_bid'], errors='coerce')
-    #combined_df['price_ask'] = pd.to_numeric(combined_df['price_ask'], errors='coerce')
-    #combined_df['bid_inclusive_of_sell_spread'] = pd.to_numeric(combined_df['bid_inclusive_of_sell_spread'],
-    #                                                            errors='coerce')
-    #combined_df['sell_spread'] = pd.to_numeric(combined_df['sell_spread'], errors='coerce')
-    #combined_df['ask_inclusive_of_buy_spread'] = pd.to_numeric(combined_df['ask_inclusive_of_buy_spread'],
-    #                                                           errors='coerce')
-    #combined_df['buy_spread'] = pd.to_numeric(combined_df['buy_spread'], errors='coerce')
 
     # Drop specified columns
     columns_to_drop = ['quantity', 'side_bid', 'side_ask', 'date']
-    combined_df = combined_df.drop(columns=columns_to_drop,
-                                   errors='ignore')  # errors ignore will ignore columns that may have been removed when resampled
+    combined_df = combined_df.drop(columns=columns_to_drop, errors='ignore')
 
     # Rename columns
     combined_df = combined_df.rename(columns={
@@ -97,6 +103,19 @@ def load_historical_data(ticker, data_interval, start_date=None, end_date=None, 
     present_columns = [col for col in desired_column_order if col in combined_df.columns]
     combined_df = combined_df[present_columns]
 
+    # Sort data by 'Date' since batches are not necessarily saved in order
+    combined_df = combined_df.sort_values(by='Date', ascending=True).reset_index(drop=True)
+
+    # Define the columns to convert
+    cols_to_convert = [
+        'bid price', 'bid_inclusive_of_sell_spread',
+        'sell_spread', 'ask price', 'ask_inclusive_of_buy_spread',
+        'buy_spread'
+    ]
+
+    # Convert the columns to float64 for high precision
+    combined_df[cols_to_convert] = combined_df[cols_to_convert].astype(np.float64)
+
     # Optionally resample to OHLC
     if ohlc_interval:
         if 'bid price' not in combined_df.columns:
@@ -108,5 +127,67 @@ def load_historical_data(ticker, data_interval, start_date=None, end_date=None, 
         ohlc_df = ohlc_df.reset_index()
         return ohlc_df
 
+    return combined_df.reset_index(drop=True)
+
+
+import os
+import pandas as pd
+from datetime import datetime, timedelta
+
+def load_trades(start_date=None, end_date=None):
+    """
+    Loads trade logs within a specified date range and calculates slippage.
+
+    Args:
+        start_date (str or None): Start date in 'YYYY-MM-DD' format. If None, loads all available data.
+        end_date (str or None): End date in 'YYYY-MM-DD' format. If None, loads all available data.
+
+    Returns:
+        pd.DataFrame: DataFrame containing trade data with calculated slippage.
+    """
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    logs_dir = os.path.join(project_root, "logs", "trade_execution")
+
+    # Ensure directory exists
+    if not os.path.exists(logs_dir):
+        raise FileNotFoundError(f"Logs directory not found: {logs_dir}")
+
+    # Parse date range
+    if start_date:
+        start_date = datetime.strptime(start_date, "%Y-%m-%d")
+    if end_date:
+        end_date = datetime.strptime(end_date, "%Y-%m-%d")
     else:
-        return combined_df.reset_index(drop=True)
+        end_date = datetime.now()  # Default to today
+
+    # Collect relevant files
+    trade_files = []
+    for file in os.listdir(logs_dir):
+        if file.startswith("trade_log_") and file.endswith(".csv"):
+            file_date_str = file.replace("trade_log_", "").replace(".csv", "")
+            try:
+                file_date = datetime.strptime(file_date_str, "%Y-%m-%d")
+                if (not start_date or file_date >= start_date) and (file_date <= end_date):
+                    trade_files.append(os.path.join(logs_dir, file))
+            except ValueError:
+                continue  # Skip files with incorrect naming formats
+
+    if not trade_files:
+        raise FileNotFoundError(f"No trade logs found in range {start_date} to {end_date}")
+
+    # Load data
+    trades = pd.concat([pd.read_csv(file) for file in trade_files], ignore_index=True)
+
+    # Ensure datetime format
+    trades["Buy Timestamp"] = pd.to_datetime(trades["Buy Timestamp"])
+    trades["Sell Timestamp"] = pd.to_datetime(trades["Sell Timestamp"])
+
+    # Calculate slippage
+    trades["Estimated Slippage (Buy)"] = trades["Estimated Price (Buy)"] - trades["Best Ask (Buy)"]
+    trades["Actual Slippage (Buy)"] = trades["Buy Price"] - trades["Best Ask (Buy)"]
+    trades["Estimated Slippage (Sell)"] = trades["Estimated Price (Sell)"] - trades["Best Bid (Sell)"]
+    trades["Actual Slippage (Sell)"] = trades["Sell Price"] - trades["Best Bid (Sell)"]
+
+    trades["Trade Duration (s)"] = (trades["Sell Timestamp"] - trades["Buy Timestamp"]).dt.total_seconds()
+
+    return trades

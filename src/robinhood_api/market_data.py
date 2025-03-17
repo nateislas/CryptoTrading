@@ -60,38 +60,48 @@ class MarketData:
         path = f"/api/v1/crypto/marketdata/estimated_price/?symbol={symbol}&side={side}&quantity={quantity}"
         return self.api_client.make_api_request("GET", path)
 
-    def get_real_time_price(self, symbol: str, side: str, quantity: float) -> Any:
+    def get_adj_est_price(self, symbol: str, side: str, quantity: float) -> float:
         """
         Gets the real-time estimated execution price for a given symbol,
-        adjusted for Robinhood's spread.
+        adjusted for Robinhood's 0.60% spread.
 
         Args:
-            symbol: The trading pair symbol (e.g., "BTC-USD").
-            side: 'bid' (sell) or 'ask' (buy).
-            quantity: The quantity.
+            symbol (str): The trading pair symbol (e.g., "DOGE-USD").
+            side (str): 'bid' (sell) or 'ask' (buy).
+            quantity (float): The quantity of the asset.
 
         Returns:
-            The estimated execution price adjusted for Robinhood's spread.
+            float: The estimated execution price adjusted for Robinhood's spread,
+                   or None if the API response is invalid.
         """
         if not isinstance(symbol, str) or not symbol:
-            raise ValueError("symbol must be a non-empty string")
-        if not isinstance(side, str) or side not in ["bid", "ask"]:
-            raise ValueError("side must be 'bid' or 'ask'")
+            raise ValueError("symbol must be a non-empty string.")
+        if side not in ["bid", "ask"]:
+            raise ValueError("side must be 'bid' or 'ask'.")
         if not isinstance(quantity, float) or quantity <= 0:
-            raise ValueError("quantity must be a positive number.")
+            raise ValueError("quantity must be a positive float.")
 
-        # Fetch the estimated price from the API
+        # Build the API path (adjust for your actual endpoint)
         path = f"/api/v1/crypto/marketdata/estimated_price/?symbol={symbol}&side={side}&quantity={quantity}"
         response = self.api_client.make_api_request("GET", path)
 
+        # Handle missing or invalid response
         if not response or "results" not in response or not response["results"]:
-            return None  # Handle API errors gracefully
+            return None
 
+        # Convert estimated price to float
         estimated_price = float(response["results"][0]["price"])
 
-        # Apply Robinhood's 0.60% spread adjustment
-        spread_percentage = 0.006  # 0.60% = 0.006
-        adjusted_price = estimated_price * (1 + spread_percentage) if side == "ask" else estimated_price * (
-                    1 - spread_percentage)
+        # Robinhood's stated spread is 0.60% (0.006 in decimal)
+        spread_percentage = 0.006
+
+        # If side == 'ask' => buy => price includes buy spread
+        # If side == 'bid' => sell => price includes sell spread
+        if side == "ask":
+            # Adjust upwards for buy spread
+            adjusted_price = estimated_price * (1 + spread_percentage)
+        else:  # side == "bid"
+            # Adjust downwards for sell spread
+            adjusted_price = estimated_price * (1 - spread_percentage)
 
         return adjusted_price
