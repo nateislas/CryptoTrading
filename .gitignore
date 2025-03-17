@@ -155,3 +155,9 @@ cython_debug/
 public_key_base64.txt
 RH_key.txt
 private_key_base64.txt
+polygon_key.txt
+
+*.DS_Store
+
+.idea/
+
