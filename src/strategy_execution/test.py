@@ -80,11 +80,18 @@ async def monitor_open_trades(api_trading_client, trade_manager: TradeManager):
                     logging.info(
                         f"[OpenMonitor] Sell condition met for {trade.symbol}: adj_est_price={adj_est_price:.6f} < buy_price={trade.buy_price:.6f}"
                     )
-                    sell_id, best_bid, best_ask, sell_adj_est_price = await place_order(
+                    sell_id, best_bid_sell, best_ask_sell, sell_adj_est_price = await place_order(
                         api_trading_client, trade.symbol, trade.quantity, 'sell'
                     )
                     if sell_id:
                         trade.sell_order_id = sell_id
+                        trade.best_bid_sell = best_bid_sell  # Store best bid at sell order placement
+                        trade.best_ask_sell = best_ask_sell  # Store best ask at sell order placement
+                        trade.estimated_price_sell = sell_adj_est_price  # Store estimated price at sell order placement
+
+                        # Save trade state after placing the sell order
+                        trade_manager.save_trades(pending_trades, open_trades)
+
                         await poll_for_sell_fill(api_trading_client, trade, trade_manager)
                         open_trades.remove(trade)
                         trade_manager.save_trades(pending_trades, open_trades)
@@ -106,9 +113,9 @@ async def poll_for_sell_fill(api_trading_client, trade, trade_manager: TradeMana
             trade.close_trade(
                 sell_order_id=trade.sell_order_id,
                 sell_price=sell_price,
-                best_bid=None,  # Optionally update with API data
-                best_ask=None,
-                estimated_price=None
+                best_bid=trade.best_bid_sell,  # Use the stored sell order best bid
+                best_ask=trade.best_ask_sell,  # Use the stored sell order best ask
+                estimated_price=trade.estimated_price_sell  # Use the stored estimated price at sell order
             )
             trade.status = TradeStatus.CLOSED
             logging.info(
