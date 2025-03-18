@@ -104,4 +104,6 @@ class MarketData:
             # Adjust downwards for sell spread
             adjusted_price = estimated_price * (1 - spread_percentage)
 
+        adjusted_price = round(adjusted_price, 2) # Robinhood rounds to the nearest cent
+
         return adjusted_price
