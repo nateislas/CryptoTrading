@@ -1,11 +1,9 @@
-##  trade.py
-import csv
 import os
+import csv
 import logging
 from datetime import datetime
 from enum import Enum
-from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import Optional
 
 class TradeStatus(Enum):
     PENDING = "PENDING"
@@ -17,7 +15,6 @@ class ExecutedTrade:
     Represents a single trade (Buy -> Sell).
     Stores the raw execution data for later post-processing.
     """
-
     def __init__(self, symbol, quantity, buy_order_id, buy_price, best_bid, best_ask, estimated_price):
         self.symbol = symbol
         self.quantity = quantity
@@ -49,67 +46,12 @@ class ExecutedTrade:
         """Checks if the trade has been closed (i.e., sell executed)."""
         return self.sell_price is not None
 
-
-class TradeHistoryLogger:
-    """
-    Handles logging of full trades.
-    """
-
-    def __init__(self, log_file="logs/trade_execution/trade_log.csv"):
-        today_date = datetime.now().strftime("%Y-%m-%d")
-        self.log_file = f"logs/trade_execution/{today_date}/trade_log.csv"
-
-        logging.info(f"Initializing TradeLogger. Log file: {self.log_file}")
-
-        # Ensure the directory exists before writing
-        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
-
-        # Initialize CSV with headers if the file does not exist
-        with open(self.log_file, "a", newline="") as file:
-            writer = csv.writer(file)
-            if file.tell() == 0:  # Write headers only if file is empty
-                writer.writerow([
-                    "Buy Timestamp", "Buy Order ID", "Sell Timestamp", "Sell Order ID",
-                    "Symbol", "Quantity", "Buy Price", "Sell Price", "PnL ($)", "Win/Loss",
-                    "Best Bid (Buy)", "Best Ask (Buy)", "Estimated Price (Buy)",
-                    "Best Bid (Sell)", "Best Ask (Sell)", "Estimated Price (Sell)"
-                ])
-
-    def log_trade(self, trade: ExecutedTrade):
-        """
-        Logs a completed trade to the CSV file.
-        """
-        if not trade.is_closed():
-            logging.warning(f"Trade for {trade.symbol} not closed yet. Skipping logging.")
-            return
-
-        win_loss = "Win" if trade.pnl > 0 else "Loss"
-
-        try:
-            with open(self.log_file, "a", newline="") as file:
-                writer = csv.writer(file)
-                writer.writerow([
-                    trade.timestamp_buy, trade.buy_order_id, trade.timestamp_sell, trade.sell_order_id,
-                    trade.symbol, trade.quantity, trade.buy_price, trade.sell_price, trade.pnl, win_loss,
-                    trade.best_bid_buy, trade.best_ask_buy, trade.estimated_price_buy,
-                    trade.best_bid_sell, trade.best_ask_sell, trade.estimated_price_sell
-                ])
-
-            logging.info(f"[SUCCESS] Trade logged: {trade.symbol}, PnL: {trade.pnl:.6f} ({win_loss})")
-
-        except Exception as e:
-            logging.error(f"[ERROR] Failed to log trade for {trade.symbol}: {e}")
-
 class TrackedTrade(ExecutedTrade):
     """
-    Extends ExecutedTrade with additional tracking for trade status and sell order ID.
+    Extends ExecutedTrade with additional tracking for trade status.
     """
-
     def __init__(self, symbol, quantity, buy_order_id, buy_price, best_bid, best_ask, estimated_price, status):
-        # Call the base class (ExecutedTrade) constructor
         super().__init__(symbol, quantity, buy_order_id, buy_price, best_bid, best_ask, estimated_price)
-
-        # Use the provided status instead of defaulting to PENDING
         if isinstance(status, str):
             self.status = TradeStatus(status)
         else:
