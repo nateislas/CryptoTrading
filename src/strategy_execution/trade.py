@@ -1,9 +1,18 @@
+##  trade.py
 import csv
 import os
 import logging
 from datetime import datetime
+from enum import Enum
+from dataclasses import dataclass, field
+from typing import Optional, List
 
-class Trade:
+class TradeStatus(Enum):
+    PENDING = "PENDING"
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+
+class ExecutedTrade:
     """
     Represents a single trade (Buy -> Sell).
     Stores the raw execution data for later post-processing.
@@ -41,14 +50,14 @@ class Trade:
         return self.sell_price is not None
 
 
-class TradeLogger:
+class TradeHistoryLogger:
     """
     Handles logging of full trades.
     """
 
     def __init__(self, log_file="logs/trade_execution/trade_log.csv"):
         today_date = datetime.now().strftime("%Y-%m-%d")
-        self.log_file = f"logs/trade_execution/trade_log_{today_date}.csv"
+        self.log_file = f"logs/trade_execution/{today_date}/trade_log.csv"
 
         logging.info(f"Initializing TradeLogger. Log file: {self.log_file}")
 
@@ -66,7 +75,7 @@ class TradeLogger:
                     "Best Bid (Sell)", "Best Ask (Sell)", "Estimated Price (Sell)"
                 ])
 
-    def log_trade(self, trade: Trade):
+    def log_trade(self, trade: ExecutedTrade):
         """
         Logs a completed trade to the CSV file.
         """
@@ -90,3 +99,19 @@ class TradeLogger:
 
         except Exception as e:
             logging.error(f"[ERROR] Failed to log trade for {trade.symbol}: {e}")
+
+class TrackedTrade(ExecutedTrade):
+    """
+    Extends ExecutedTrade with additional tracking for trade status and sell order ID.
+    """
+
+    def __init__(self, symbol, quantity, buy_order_id, buy_price, best_bid, best_ask, estimated_price, status):
+        # Call the base class (ExecutedTrade) constructor
+        super().__init__(symbol, quantity, buy_order_id, buy_price, best_bid, best_ask, estimated_price)
+
+        # Use the provided status instead of defaulting to PENDING
+        if isinstance(status, str):
+            self.status = TradeStatus(status)
+        else:
+            self.status = status
+        self.sell_order_id: Optional[str] = None
