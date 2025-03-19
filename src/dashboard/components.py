@@ -1,54 +1,40 @@
-# src/dashboard/components.py
 from dash import html, dcc
 import dash_bootstrap_components as dbc
-from src.robinhood_api.api_access import CryptoAPITrading  # Import your API class
-from src.data_processing.data_utils import load_historical_data  # Import your data loading function
+from src.robinhood_api.api_access import CryptoAPITrading
+from src.data_processing.data_utils import load_data
 import datetime
 import logging
-import requests
-from bokeh.plotting import figure
-from bokeh.models import ColumnDataSource
-from bokeh.embed import components
-from bokeh.io import curdoc, reset_output
-from bokeh.document import Document
-from bokeh.models import HoverTool
-from bokeh.document import Document
-from bokeh.models import ColumnDataSource, HoverTool, Div
-from bokeh.plotting import figure
-from bokeh.embed import components
 import pandas as pd
 import numpy as np
+import plotly.graph_objects as go
+import plotly.io as pio
 
-# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Initialize the API client globally
+# Initialize the API client
 api_trading_client = CryptoAPITrading()
 
-
 def generate_crypto_card(ticker):
-    """Generates a crypto card for the dashboard."""
+    """
+    Generates a card widget for the given crypto asset.
+    """
     try:
-        # Fetch real-time price data
         best_bid_ask = api_trading_client.market_data.get_best_bid_ask(f"{ticker}-USD")
         current_price = float(best_bid_ask['results'][0]['price'])
-
-        # Fetch historical data for 24-hour change
         now = datetime.datetime.now()
         yesterday = now - datetime.timedelta(days=1)
-        yesterday_str = yesterday.strftime('%Y-%m-%d')
-        today_str = now.strftime('%Y-%m-%d')
-
-        historical_data = load_historical_data(ticker=f"{ticker}-USD", start_date=yesterday_str, end_date=today_str,
-                                               data_interval='1s', ohlc_interval='1min')
-
+        historical_data = load_data(
+            ticker=f"{ticker}-USD",
+            start_date=yesterday.strftime('%Y-%m-%d'),
+            end_date=now.strftime('%Y-%m-%d'),
+            ohlc_interval='1min'
+        )
         if not historical_data.empty:
-            open_price_24h_ago = historical_data['open'].iloc[0]
-            percent_change = ((current_price - open_price_24h_ago) / open_price_24h_ago) * 100
+            open_price = historical_data['open'].iloc[0]
+            percent_change = ((current_price - open_price) / open_price) * 100
         else:
-            percent_change = 0.0  # Default to 0 if no historical data
-            logging.warning(f"No historical data found for {ticker}. Setting percent change to 0.")
-
+            percent_change = 0.0
+            logging.warning("No historical data found for %s", ticker)
         card = dbc.Card(
             [
                 dbc.CardBody(
@@ -60,199 +46,128 @@ def generate_crypto_card(ticker):
                     ]
                 )
             ],
-            style={"width": "18rem", "margin": "10px"},
+            style={"width": "18rem", "margin": "10px"}
         )
+        return card
     except Exception as e:
-        logging.error(f"Error generating card for {ticker}: {e}")
-        card = dbc.Card(
+        logging.error("Error generating card for %s: %s", ticker, e)
+        return dbc.Card(
             [
                 dbc.CardBody(
                     [
                         html.H5(ticker, className="card-title", style={"fontSize": "16px"}),
-                        html.Div("Error fetching data", className="card-text",
-                                 style={"fontSize": "18px", "color": "red"}),
+                        html.Div("Error fetching data", className="card-text", style={"fontSize": "18px", "color": "red"}),
                     ]
                 )
             ],
-            style={"width": "18rem", "margin": "10px"},
+            style={"width": "18rem", "margin": "10px"}
         )
-    return card
 
-def get_polygon_data(crypto_symbol, start_date, end_date, api_key):
-    """Fetches and processes data from Polygon.io for a given crypto symbol."""
-    symbol = f"X:{crypto_symbol}USD"  # Crypto symbol (BASE-QUOTE)
-    multiplier = 1
-    timespan = "minute"
-    url = f"https://api.polygon.io/v2/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{start_date}/{end_date}?apiKey={api_key}"
-    response = requests.get(url).json()
-    if response.get('results'):
-        df = pd.DataFrame(response["results"])
-        df["Date"] = pd.to_datetime(df["t"], unit="ms")
-        df.rename(columns={"o": "open", "h": "high", "l": "low", "c": "close", "v": "volume"}, inplace=True)
-        df = df[["Date", "open", "high", "low", "close", "volume"]]
-        df['Date'] = pd.to_datetime(df['Date'])
-        return df
+def create_crypto_graph_plotly(df, chart_type="candlestick"):
+    """
+    Creates Plotly graphs for the price (candlestick or line chart) and volume.
+    Returns HTML snippets for embedding.
+    """
+    if chart_type == "candlestick":
+        fig_price = go.Figure(data=[go.Candlestick(
+            x=df['Date'],
+            open=df['open'],
+            high=df['high'],
+            low=df['low'],
+            close=df['close'],
+            increasing_line_color='green',
+            decreasing_line_color='red'
+        )])
+    elif chart_type == "line":
+        fig_price = go.Figure(data=[go.Scatter(
+            x=df['Date'],
+            y=df['close'],
+            mode='lines',
+            line=dict(color='cyan')
+        )])
     else:
-        return pd.DataFrame()
+        fig_price = go.Figure()
 
-def create_crypto_graph_bokeh(df):
+    fig_price.update_layout(
+        xaxis_title="Date",
+        yaxis_title="Price",
+        template="plotly_dark"
+    )
+
+    colors = ['green' if row['close'] >= row['open'] else 'red' for _, row in df.iterrows()]
+    fig_volume = go.Figure(data=[go.Bar(
+        x=df['Date'],
+        y=df['volume'],
+        marker_color=colors
+    )])
+    fig_volume.update_layout(
+        xaxis_title="Date",
+        yaxis_title="Volume",
+        template="plotly_dark"
+    )
+
+    price_html = pio.to_html(fig_price, full_html=False, include_plotlyjs='cdn')
+    volume_html = pio.to_html(fig_volume, full_html=False, include_plotlyjs=False)
+    return price_html, volume_html
+
+def get_crypto_data_and_graphs(crypto_symbol, chart_type="candlestick"):
     """
-    Creates a Bokeh candlestick chart and volume bar chart for cryptocurrency price visualization.
-    Uses only one HoverTool renderer on the candle bodies to avoid duplicate tooltips.
+    Retrieves historical data for the given asset and returns Plotly-generated HTML
+    for both price and volume charts.
     """
-
-    doc = Document()
-
-    # Determine candle color
-    df["color"] = np.where(df["close"] > df["open"], "green", "red")
-
-    source = ColumnDataSource(df)
-
-    # Candlestick width in ms
-    if len(df) > 1:
-        time_diffs = np.diff(df['Date'].astype(np.int64))
-        avg_interval_ns = np.mean(time_diffs)
-        w = avg_interval_ns / 1e6
-    else:
-        w = 60000
-
-    # Price figure
-    p_price = figure(
-        x_axis_type="datetime",
-        width=900,
-        height=400,
-        background_fill_color="black",
-        border_fill_color="black",
-        sizing_mode="stretch_width",
-        toolbar_location="above",
-        tools="xpan,xwheel_zoom,reset,save"
-    )
-
-    # Wick (segment). We'll keep this for visuals,
-    # but not attach it to the hover tool.
-    wick_glyph = p_price.segment(
-        'Date', 'high', 'Date', 'low',
-        source=source,
-        color="white"
-    )
-
-    # Candle bodies (vbar). We'll attach the hover tool to this renderer.
-    candle_bodies = p_price.vbar(
-        x='Date',
-        width=w,
-        top='open',
-        bottom='close',
-        source=source,
-        fill_color="color",
-        line_color="color",
-        alpha=0.8
-    )
-
-    # Create a hover tool for price chart, restricted to vbar only:
-    hover_tool_price = HoverTool(
-        tooltips=[
-            ("Date", "@Date"),
-            ("Open", "@open{0.2f}"),
-            ("High", "@high{0.2f}"),
-            ("Low", "@low{0.2f}"),
-            ("Close", "@close{0.2f}")
-        ],
-        formatters={"@Date": "datetime"},
-        mode="vline",
-        show_arrow=True,
-        renderers=[candle_bodies]  # <--- key to avoid duplicates
-    )
-    p_price.add_tools(hover_tool_price)
-
-    p_price.title.text = "Crypto Price"
-    p_price.xaxis.axis_label = "Date"
-    p_price.yaxis.axis_label = "Price"
-    p_price.grid.grid_line_alpha = 0.3
-
-    # Volume figure (linked x-range)
-    p_vol = figure(
-        x_axis_type="datetime",
-        width=900,
-        height=150,
-        background_fill_color="black",
-        border_fill_color="black",
-        sizing_mode="stretch_width",
-        tools="xpan,xwheel_zoom,reset,save",
-        x_range=p_price.x_range
-    )
-
-    vol_bars = p_vol.vbar(
-        x="Date",
-        top="volume",
-        width=w,
-        source=source,
-        fill_color="color",
-        line_color="color",
-        alpha=0.8
-    )
-
-    # Hover tool for volume figure, restricted to the volume bars only
-    hover_tool_volume = HoverTool(
-        tooltips=[
-            ("Date", "@Date"),
-            ("Volume", "@volume{0.2f}")
-        ],
-        formatters={"@Date": "datetime"},
-        mode="vline",
-        show_arrow=True,
-        renderers=[vol_bars]
-    )
-    p_vol.add_tools(hover_tool_volume)
-
-    p_vol.title.text = "Trading Volume"
-    p_vol.xaxis.axis_label = "Date"
-    p_vol.yaxis.axis_label = "Volume"
-    p_vol.grid.grid_line_alpha = 0.3
-
-    # Add both plots to the Document
-    doc.add_root(p_price)
-    doc.add_root(p_vol)
-
-    # Convert to script & div
-    price_script, price_div = components(p_price, doc)
-    volume_script, volume_div = components(p_vol, doc)
-
-    # Clear the doc
-    doc.clear()
-
-    return price_script, price_div, volume_script, volume_div
-
-def create_crypto_graph(df):
-    """
-    Bokeh version: Returns script/div pairs for candlestick and volume charts.
-    """
-    from bokeh.embed import components
-
-    price_script, price_div, volume_script, volume_div = create_crypto_graph_bokeh(df)
-    # We'll return them as a dictionary for convenience
-    return {
-        "price_script": price_script,
-        "price_div": price_div,
-        "volume_script": volume_script,
-        "volume_div": volume_div
-    }
-
-
-def get_crypto_data_and_graphs(crypto_symbol):
-    """
-    Fetches crypto data and returns Bokeh script/div for both charts.
-    """
-    # Read API key from file
     with open('src/robinhood_api/keys/polygon_key.txt', 'r') as file:
         api_key = file.read().strip()
+    today = datetime.datetime.utcnow().strftime('%Y-%m-%d')
+    df = load_data(
+        ticker=f"{crypto_symbol}-USD",
+        start_date=today,
+        end_date=today,
+        ohlc_interval="5min"
+    )
+    if 'volume' not in df.columns or df['volume'].isnull().all():
+        df['volume'] = 100  # Fallback volume
+    price_html, volume_html = create_crypto_graph_plotly(df, chart_type=chart_type)
+    return df, {"price_html": price_html, "volume_html": volume_html}
 
-    yesterday = (datetime.datetime.utcnow() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+def portfolio_value_chart():
+    """
+    Returns a placeholder Plotly chart for portfolio value.
+    """
+    fig = go.Figure()
+    fig.update_layout(
+        title="Portfolio Value",
+        xaxis_title="Time",
+        yaxis_title="Value",
+        template="plotly_dark"
+    )
+    return dcc.Graph(figure=fig)
 
-    # Assume you have get_polygon_data that returns a DataFrame
-    df = get_polygon_data(crypto_symbol=crypto_symbol,
-                          start_date=yesterday,
-                          end_date=yesterday,
-                          api_key=api_key)
+def holdings_table():
+    """
+    Returns a placeholder table of holdings.
+    """
+    table_header = html.Thead(
+        html.Tr([html.Th("Asset"), html.Th("Quantity"), html.Th("Value")])
+    )
+    table_body = html.Tbody(
+        [
+            html.Tr([html.Td("BTC"), html.Td("0.5"), html.Td("$20,000")]),
+            html.Tr([html.Td("ETH"), html.Td("10"), html.Td("$15,000")])
+        ]
+    )
+    return dbc.Table(table_header + [table_body], bordered=True, dark=True, hover=True, responsive=True)
 
-    bokeh_plots = create_crypto_graph(df)  # returns a dict of script/div
-    return df, bokeh_plots
+def market_data_table():
+    """
+    Returns a placeholder table for live market data.
+    """
+    table_header = html.Thead(
+        html.Tr([html.Th("Asset"), html.Th("Price"), html.Th("Change")])
+    )
+    table_body = html.Tbody(
+        [
+            html.Tr([html.Td("BTC"), html.Td("$30,000"), html.Td("5%")]),
+            html.Tr([html.Td("ETH"), html.Td("$2,000"), html.Td("3%")])
+        ]
+    )
+    return dbc.Table(table_header + [table_body], bordered=True, dark=True, hover=True, responsive=True)
