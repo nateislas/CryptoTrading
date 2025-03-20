@@ -15,7 +15,7 @@ def consolidate_parquet_files_partitioned(ticker):
     Saves:
         Partitioned Parquet files in `/data/{ticker}/year=YYYY/month=MM/day=DD/`.
     """
-    project_root = "/Users/nathanielislas/PycharmProjects/CryptoTrading"
+    project_root = "/home/jetbot/Workspace/CryptoTrading"
     base_folder = os.path.join(project_root, "data", ticker, '1s')
 
     # Ensure base folder exists
